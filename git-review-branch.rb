@@ -13,12 +13,13 @@ class Cmd
     @baseargs = a
   end
 
-  def run *a, **kw
+  def run *a
+    kw = Hash === a[-1] ? a.pop : {}
     env, args = a.flatten.partition { |e| Hash === e }
     args = env + @baseargs + args
     o,wo = IO.pipe
     e,we = IO.pipe
-    pid = Process.spawn *args, out:wo, err:we, **kw
+    pid = Process.spawn *(args + [kw.merge(out:wo, err:we)])
     [we, wo].each &:close
     sa = [o,e]
     odata = {o => "", e => ""}
@@ -92,11 +93,12 @@ if CONF.branch == true
 end
 
 if CONF.verbose
-  def info *a, break_line:true
-    break_line ? puts(*a): print(*a)
+  def info *a
+    kw = {:break_line => true}.merge Hash === a[-1] ? a.pop : {}
+    kw[:break_line] ? puts(*a): print(*a)
   end
 else
-  def info *a, **kw
+  def info *a
   end
 end
 
