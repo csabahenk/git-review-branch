@@ -88,8 +88,8 @@ end
 
 CONF.changeid = $*[0]
 
-if CONF.branch == true
-  CONF.branch == "patchsets-#{CONF.changeid}"
+if CONF.respond_to? :branch
+  CONF.branch ||= "patchsets-#{CONF.changeid}"
 end
 
 if CONF.verbose
