@@ -106,7 +106,7 @@ addopt = proc { |*a|
  ['-p', '--port P'],
  ['--host H'],
  ['--jsonhack', 'allow sloppy JSON stream parsing'],
- ['--patchno N', '--patch-number N', 'specify patchset number to align commits with'],
+ ['--base C', 'specify commit or patchset number to align commits with'],
  ['-v', '--verbose'],
  ['--debug'],
  ['--branch[=B]', 'create named branch at result commit'],
@@ -186,11 +186,27 @@ patches.each { |n,ptch|
 }
 info
 
-CONF.patchno ||= patches.keys.max
-unless patches.include? CONF.patchno
-  STDERR.puts "Aborting: there is no patchset version #{CONF.patchno}"
-  exit 1
+basecommit = case CONF.base
+when Integer, /\A\d+\Z/, nil
+  patchno = Integer(CONF.base||patches.keys.max)
+  unless patches.include? patchno
+    STDERR.puts "Aborting: there is no patchset version #{patchno}"
+    exit 1
+  end
+  basecommit_rep = "patchset #{patchno}"
+  patches[patchno].revision + "^"
+when String
+  begin
+    git.run %w[cat-file -e], CONF.base
+  rescue CmdFail => fx
+    STDERR.puts fx.err
+    exit 1
+  end
+  CONF.base
+else
+  raise "can't make sense of CONF.base.class == #{CONF.base.class}"
 end
+basecommit_rep ||= basecommit
 
 git.run %w[checkout --detach]
 
@@ -202,7 +218,7 @@ cherrymap = []
 # to get it sorted it here
 patches.to_a.sort.each { |n,ptch|
   begin
-    git.run %w[reset --hard], patches[CONF.patchno].revision + "^"
+    git.run %w[reset --hard], basecommit
     git.run({"GIT_EDITOR"=> "sed -i -e '1 s/$/ [patchset #{n}]/'"}, %w[cherry-pick -e], ptch.revision)
     cherrymap << [n, git.run(%w[rev-parse HEAD]).strip]
     info "#{n}(^_^) ", break_line:false
@@ -212,8 +228,12 @@ patches.to_a.sort.each { |n,ptch|
 }
 info
 
-info "Building patchset branch ..."
 n, gitid = cherrymap.shift
+unless gitid
+  STDERR.puts "No patchset could be cherry-picked to #{basecommit_rep}, exiting"
+  exit 1
+end
+info "Building patchset branch ..."
 git.run %w[reset --hard], gitid
 info "#{n} ", break_line:false
 cherrymap.each { |n,gitid|
