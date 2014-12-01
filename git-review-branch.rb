@@ -13,6 +13,9 @@ class Cmd
     @baseargs = a
   end
 
+  def self.debug *a
+  end
+
   def run *a
     kw = Hash === a[-1] ? a.pop : {}
     env, args = a.flatten.partition { |e| Hash === e }
@@ -32,6 +35,7 @@ class Cmd
     end
     [o,e].each &:close
     _,s = Process.wait2 pid
+    self.class.debug(args, s, odata.values)
     unless s.success?
       v = case true
       when s.exited?
@@ -48,6 +52,22 @@ class Cmd
   end
 
 end
+
+class CmdDbg < Cmd
+
+  def self.debug args, stat, outs
+    args = args.map { |x| Hash === x ? x.map { |k,v| "#{k}=#{v}" } : x }.flatten.join(" ")
+    stat = stat.inspect.sub(/.*\spid\s+\d+\s/, "").sub(/\s*>\Z/, "")
+    outs = %w[out err].zip outs.map { |d|
+      d.inspect[1...-1] == d ? d : d.inspect
+    }
+    puts "DBG #{args} => #{stat}", *outs.map { |k,d|
+         d.empty? ? nil : "  DBG #{k}: #{d}"
+    }.compact
+  end
+
+end
+
 
 CONF = OpenStruct.new user: Etc.getlogin, port: 29418, host: "review.openstack.org"
 
@@ -77,6 +97,7 @@ addopt = proc { |*a|
  ['--jsonhack', 'allow sloppy JSON stream parsing'],
  ['--patchno N', '--patch-number N', 'specify patchset number to align commits with'],
  ['-v', '--verbose'],
+ ['--debug'],
  ['--branch[=B]', 'create named branch at result commit'],
  ['-r', '--remote R', 'Git remote for Gerrit']].each { |a| addopt[*a] }
 op.parse!
@@ -102,6 +123,8 @@ else
   end
 end
 
+Cmdx = CONF.debug ? CmdDbg : Cmd
+
 jsonfetch = begin
   require 'yajl'
   proc { |data| Yajl::Parser.new.parse(data) { |o| break o } }
@@ -118,14 +141,14 @@ EOS
   proc { |data| JSON.load data.split("\n")[0] }
 end
 
-git = Cmd.new "git"
+git = Cmdx.new "git"
 
 unless git.run(%w[status -z]).split("\0").map { |l| l.split(/ +/, 2)[0] } - %w[?? !!] == []
   STDERR.puts "Aborting: there are outstanding changes"
   exit 1
 end
 
-cdata = jsonfetch.call Cmd.new("ssh").run "-p", CONF.port.to_s,
+cdata = jsonfetch.call Cmdx.new("ssh").run "-p", CONF.port.to_s,
   "#{CONF.user}@#{CONF.host}",
   %w[gerrit query  --patch-sets  --format=json], CONF.changeid
 
