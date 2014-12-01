@@ -5,6 +5,26 @@ require 'ostruct'
 require 'etc'
 
 class CmdFail < StandardError
+
+  def initialize prm, *a
+    prm.each { |k,v|
+      instance_variable_set "@#{k}", v
+    }
+
+    v = case true
+    when @stat.exited?
+      @stat.exitstatus
+    when @sstat.signaled?
+      "signal #{@stat.termsig}"
+    else
+      raise "process terminated in unknown condition"
+    end
+    argv = @args.map { |e| Hash === e ? nil : [e].flatten[-1] }.compact
+    super "#{argv.join " "} failed with #{v}#{@err.empty? ? "" : ": " + @err}", *a
+  end
+
+  attr_reader :args, :stat, :err
+
 end
 
 class Cmd
@@ -37,16 +57,7 @@ class Cmd
     _,s = Process.wait2 pid
     self.class.debug(args, s, odata.values)
     unless s.success?
-      v = case true
-      when s.exited?
-        s.exitstatus
-      when s.signaled?
-        "signal #{s.termsig}"
-      else
-        raise "process terminated in unknown condition"
-      end
-      argv = args.map { |e| Hash === e ? nil : [e].flatten[-1] }.compact
-      raise CmdFail, "#{argv.join " "} failed with #{v}#{odata[e].empty? ? "" : ": " + odata[e]}" 
+      raise CmdFail, args:args, stat:s, err:odata[e]
     end
     odata[o]
   end
