@@ -79,6 +79,15 @@ class CmdDbg < Cmd
 
 end
 
+def git_commit_parse data
+  head, body = data.split "\n\n", 2
+  commit = {"body" => body, "subject" => body.sub(/\n.*/m, "")}
+  head.split("\n").map { |l|
+    k,v = l.split /\s+/, 2
+    commit[k] = commit[k] ? [commit[k], v].flatten : v
+  }
+  OpenStruct.new commit
+end
 
 CONF = OpenStruct.new user: Etc.getlogin, port: 29418, host: "review.openstack.org"
 
@@ -159,9 +168,49 @@ unless git.run(%w[status -z]).split("\0").map { |l| l.split(/ +/, 2)[0] } - %w[?
   exit 1
 end
 
+commmap = []
+if CONF.branch
+  info "Checking preexisting #{CONF.branch} ..."
+  branch_exists = begin
+    git.run %w[show-ref --verify --quiet], "refs/heads/#{CONF.branch}"
+    true
+  rescue CmdFail
+    false
+  end
+  if branch_exists
+    info "Found."
+    comm = CONF.branch
+    branchbase = nil
+    loop do
+      comminf = git_commit_parse(git.run %w[cat-file -p], comm)
+      case comminf.parent
+      when Array, nil
+        STDERR.puts "Aborting: preexisting branch has ambiguos topology"
+        exit 1
+      end
+      if comminf.subject =~ /.*\s\[patchset\s+(\d+)\]\Z/
+        commmap << [Integer($1), comm, comminf]
+        comm = comminf.parent
+      else
+        branchbase = comm
+        break
+      end
+    end
+    commmap.sort!
+    CONF.base ||= branchbase
+  else
+    info "Nope."
+  end
+end
+
 cdata = jsonfetch.call Cmdx.new("ssh").run "-p", CONF.port.to_s,
   "#{CONF.user}@#{CONF.host}",
   %w[gerrit query  --patch-sets  --format=json], CONF.changeid
+
+if branch_exists and commmap.map { |r| r[2].body =~ /Change-Id:\s+(\S+)/; $1 }.uniq != [cdata["id"]]
+  STDERR.puts "Aborting: #{CONF.branch} is not a review branch"
+  exit 1
+end
 
 CONF.remote ||= "ssh://#{CONF.user}@#{CONF.host}:#{CONF.port}/#{cdata["project"]}.git"
 
@@ -206,6 +255,10 @@ when String
 else
   raise "can't make sense of CONF.base.class == #{CONF.base.class}"
 end
+if branchbase and git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1
+  STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
+  exit 1
+end
 basecommit_rep ||= basecommit
 
 git.run %w[checkout --detach]
@@ -216,7 +269,8 @@ cherrymap = []
 # of guarantee that the JSON we get from Gerrit
 # provides patchset records in order, so better
 # to get it sorted it here
-patches.to_a.sort.each { |n,ptch|
+patches.sort.each { |n,ptch|
+  next if n <= (commmap.last||[0]).first
   begin
     git.run %w[reset --hard], basecommit
     git.run({"GIT_EDITOR"=> "sed -i -e '1 s/$/ [patchset #{n}]/'"}, %w[cherry-pick -e], ptch.revision)
@@ -228,22 +282,39 @@ patches.to_a.sort.each { |n,ptch|
 }
 info
 
-n, gitid = cherrymap.shift
+n, gitid = commmap.last || cherrymap.shift
 unless gitid
   STDERR.puts "No patchset could be cherry-picked to #{basecommit_rep}, exiting"
   exit 1
 end
 info "Building patchset branch ..."
 git.run %w[reset --hard], gitid
-info "#{n} ", break_line:false
-cherrymap.each { |n,gitid|
-  git.run "checkout", gitid, "."
-  git.run %w[commit -C], gitid
+if cherrymap.empty?
+  info "Moved branch to preexisting patchset #{n}."
+else
   info "#{n} ", break_line:false
-}
-info
+  cherrymap.each { |n,gitid|
+    git.run "checkout", gitid, "."
+    git.run %w[commit -C], gitid
+    info "#{n} ", break_line:false
+  }
+  info
+end
 
 if CONF.branch
-  info "Creating branch #{CONF.branch} ..."
-  git.run %w[checkout -b], CONF.branch
+  if branch_exists
+    info "Checking out branch #{CONF.branch} ..."
+    unless [cherrymap.empty?,
+            git.run(%w[rev-parse HEAD], CONF.branch).split("\n").uniq.size == 1
+           ].uniq.size == 1
+      raise "assertion failed"
+    end
+    unless cherrymap.empty?
+      git.run "update-ref", "refs/heads/#{CONF.branch}", "HEAD"
+    end
+    git.run "checkout", CONF.branch
+  else
+    info "Creating branch #{CONF.branch} ..."
+    git.run %w[checkout -b], CONF.branch
+  end
 end
