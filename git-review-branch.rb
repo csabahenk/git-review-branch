@@ -118,7 +118,7 @@ addopt = proc { |*a|
  ['--base C', 'specify commit or patchset number to align commits with'],
  ['-v', '--verbose'],
  ['--debug'],
- ['--branch[=B]', 'create named branch at result commit'],
+ ['-b', '--branch[=B]', 'create named branch at result commit'],
  ['-r', '--remote R', 'Git remote for Gerrit']].each { |a| addopt[*a] }
 op.parse!
 
@@ -128,10 +128,6 @@ unless $*.size == 1
 end
 
 CONF.changeid = $*[0]
-
-if CONF.respond_to? :branch
-  CONF.branch ||= "patchsets-#{CONF.changeid}"
-end
 
 if CONF.verbose
   def info *a
@@ -168,8 +164,28 @@ unless git.run(%w[status -z]).split("\0").map { |l| l.split(/ +/, 2)[0] } - %w[?
   exit 1
 end
 
+info "Downloading patchset data ..."
+cdata = jsonfetch.call Cmdx.new("ssh").run "-p", CONF.port.to_s,
+  "#{CONF.user}@#{CONF.host}",
+  %w[gerrit query  --patch-sets  --format=json], CONF.changeid
+
 commmap = []
-if CONF.branch
+if CONF.respond_to? :branch
+  ncdata = {}.instance_eval {
+    cdata.each { |k,v|
+      next unless String === v or Numeric === v
+      update k => v.to_s.gsub(/\s+/, "-")
+    }
+    self
+  }
+  case CONF.branch
+  when nil
+    CONF.branch = "#{ncdata["topic"]}--#{ncdata["subject"]}"
+  when /\{\{/
+    require 'mustache'
+    CONF.branch = Mustache.render CONF.branch, ncdata
+  end
+
   info "Checking preexisting #{CONF.branch} ..."
   branch_exists = begin
     git.run %w[show-ref --verify --quiet], "refs/heads/#{CONF.branch}"
@@ -185,7 +201,7 @@ if CONF.branch
       comminf = git_commit_parse(git.run %w[cat-file -p], comm)
       case comminf.parent
       when Array, nil
-        STDERR.puts "Aborting: preexisting branch has ambiguos topology"
+        STDERR.puts "Aborting: preexisting branch has ambiguous topology"
         exit 1
       end
       if comminf.subject =~ /.*\s\[patchset\s+(\d+)\]\Z/
@@ -202,10 +218,6 @@ if CONF.branch
     info "Nope."
   end
 end
-
-cdata = jsonfetch.call Cmdx.new("ssh").run "-p", CONF.port.to_s,
-  "#{CONF.user}@#{CONF.host}",
-  %w[gerrit query  --patch-sets  --format=json], CONF.changeid
 
 if branch_exists and commmap.map { |r| r[2].body =~ /Change-Id:\s+(\S+)/; $1 }.uniq != [cdata["id"]]
   STDERR.puts "Aborting: #{CONF.branch} is not a review branch"
