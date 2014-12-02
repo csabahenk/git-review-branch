@@ -93,7 +93,7 @@ CONF = OpenStruct.new user: Etc.getlogin, port: 29418, host: "review.openstack.o
 
 op = OptionParser.new
 op.banner << <<EOS
- <change-id>
+ [<change-id>]
 
 Build a git branch from patchsets of a Gerrit review entry,
 specified by <change-id> (either the Gerrit review number or
@@ -122,13 +122,13 @@ addopt = proc { |*a|
  ['-r', '--remote R', 'Git remote for Gerrit']].each { |a| addopt[*a] }
 op.parse!
 
-unless $*.size == 1
+unless $*.size <= 1
   puts op
   exit 1
 end
 
-CONF.changeid = $*[0]
-
+Cmdx = CONF.debug ? CmdDbg : Cmd
+git = Cmdx.new "git"
 if CONF.verbose
   def info *a
     kw = {:break_line => true}.merge Hash === a[-1] ? a.pop : {}
@@ -139,7 +139,17 @@ else
   end
 end
 
-Cmdx = CONF.debug ? CmdDbg : Cmd
+CONF.changeid = $*[0]
+unless CONF.changeid
+  info "Change-Id not given, trying to find it out ..."
+  git_commit_parse(git.run %w[cat-file -p], CONF.branch||"HEAD").body =~ /Change-Id:\s+(\S+)/
+  unless $1
+    STDERR.puts "Aborting: cannot find Change-Id"
+    exit 1
+  end
+  CONF.changeid = $1
+  info CONF.changeid
+end
 
 jsonfetch = begin
   require 'yajl'
@@ -157,8 +167,6 @@ EOS
   proc { |data| JSON.load data.split("\n")[0] }
 end
 
-git = Cmdx.new "git"
-
 unless git.run(%w[status -z]).split("\0").map { |l| l.split(/ +/, 2)[0] } - %w[?? !!] == []
   STDERR.puts "Aborting: there are outstanding changes"
   exit 1
@@ -168,6 +176,7 @@ info "Downloading patchset data ..."
 cdata = jsonfetch.call Cmdx.new("ssh").run "-p", CONF.port.to_s,
   "#{CONF.user}@#{CONF.host}",
   %w[gerrit query  --patch-sets  --format=json], CONF.changeid
+info "OK."
 
 commmap = []
 if CONF.respond_to? :branch
@@ -329,4 +338,5 @@ if CONF.branch
     info "Creating branch #{CONF.branch} ..."
     git.run %w[checkout -b], CONF.branch
   end
+  info "OK."
 end
