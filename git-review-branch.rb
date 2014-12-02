@@ -116,6 +116,7 @@ addopt = proc { |*a|
  ['--host H'],
  ['--jsonhack', 'allow sloppy JSON stream parsing'],
  ['--base C', 'specify commit or patchset number to align commits with'],
+ ['-f', '--force', 'force updating existing branch (to given base or newest patchset)'],
  ['-v', '--verbose'],
  ['--debug'],
  ['-b', '--branch[=B]', 'create named branch at result commit'],
@@ -222,7 +223,6 @@ if CONF.respond_to? :branch
       end
     end
     commmap.sort!
-    CONF.base ||= branchbase
   else
     info "Nope."
   end
@@ -276,9 +276,18 @@ when String
 else
   raise "can't make sense of CONF.base.class == #{CONF.base.class}"
 end
-if branchbase and git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1
-  STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
-  exit 1
+if branch_exists and git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1
+  if CONF.force
+      commmap = []
+  else
+    if CONF.base
+      STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
+      exit 1
+    else
+      basecommit = branchbase
+      basecommit_rep = basecommit
+    end
+  end
 end
 basecommit_rep ||= basecommit
 
