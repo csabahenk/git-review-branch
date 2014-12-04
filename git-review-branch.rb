@@ -325,7 +325,7 @@ else
   info "#{n} ", break_line:false
   cherrymap.each { |n,gitid|
     git.run "checkout", gitid, "."
-    git.run %w[commit -C], gitid
+    git.run %w[commit --allow-empty -C], gitid
     info "#{n} ", break_line:false
   }
   info
