@@ -101,16 +101,7 @@ the Change-Id).
 
 Options:
 EOS
-addopt = proc { |*a|
-  option = a.grep(/\A--/)[0].sub(/\A--/, "").sub(/([^a-zA-Z_-].*)?\Z/, "")
-  defval = CONF.send option
-  if defval
-    a[-1][0...2] == "--" and a << ""
-    a[-1].sub! /(.)$/, '\1 '
-    a[-1] << "[default: #{defval}]"
-  end
-  op.on(*a) { |v| CONF.send "#{option}=", v }
-}
+
 [['-u', '--user U', 'Gerrit user'],
  ['-p', '--port P'],
  ['--host H'],
@@ -120,7 +111,16 @@ addopt = proc { |*a|
  ['-v', '--verbose'],
  ['--debug'],
  ['-b', '--branch[=B]', 'create named branch at result commit'],
- ['-r', '--remote R', 'Git remote for Gerrit']].each { |a| addopt[*a] }
+ ['-r', '--remote R', 'Git remote for Gerrit']].each { |a|
+  option = a.grep(/\A--/)[0].sub(/\A--/, "").sub(/([^a-zA-Z_-].*)?\Z/, "")
+  defval = CONF.send option
+  if defval
+    a[-1][0...2] == "--" and a << ""
+    a[-1].sub! /(.)$/, '\1 '
+    a[-1] << "[default: #{defval}]"
+  end
+  op.on(*a) { |v| CONF.send "#{option}=", v }
+}
 op.parse!
 
 unless $*.size <= 1
