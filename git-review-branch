@@ -14,7 +14,7 @@ class CmdFail < StandardError
     v = case true
     when @stat.exited?
       @stat.exitstatus
-    when @sstat.signaled?
+    when @stat.signaled?
       "signal #{@stat.termsig}"
     else
       raise "process terminated in unknown condition"
