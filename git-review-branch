@@ -184,7 +184,7 @@ if CONF.respond_to? :branch
   ncdata = {}.instance_eval {
     cdata.each { |k,v|
       next unless String === v or Numeric === v
-      update k => v.to_s.gsub(/\s+/, "-")
+      update k => v.to_s.gsub(/\s+/, "-").gsub(":", "")
     }
     self
   }
@@ -209,14 +209,13 @@ if CONF.respond_to? :branch
     branchbase = nil
     loop do
       comminf = git_commit_parse(git.run %w[cat-file -p], comm)
-      case comminf.parent
-      when Array, nil
-        STDERR.puts "Aborting: preexisting branch has ambiguous topology"
-        exit 1
-      end
       if comminf.subject =~ /.*\s\[patchset\s+(\d+)\]\Z/
         commmap << [Integer($1), comm, comminf]
         comm = comminf.parent
+        unless String === comm
+          STDERR.puts "Aborting: preexisting branch has ambiguous topology"
+          exit 1
+        end
       else
         branchbase = comm
         break
