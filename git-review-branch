@@ -332,7 +332,7 @@ patches.sort.each { |n,ptch|
 }
 info
 
-n, gitid = commmap.last || cherrymap.shift
+n, gitid = commmap.last || cherrymap.first
 unless gitid
   STDERR.puts "No patchset could be cherry-picked to #{basecommit_rep}, exiting"
   exit 1
@@ -343,7 +343,7 @@ if cherrymap.empty?
   info "Moved branch to preexisting patchset #{n}."
 else
   info "#{n} ", break_line:false
-  cherrymap.each { |n,gitid|
+  cherrymap[1..-1].each { |n,gitid|
     git.run "checkout", gitid, "."
     git.run %w[commit --allow-empty -C], gitid
     info "#{n} ", break_line:false
