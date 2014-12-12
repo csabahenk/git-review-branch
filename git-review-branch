@@ -89,6 +89,9 @@ def git_commit_parse data
   OpenStruct.new commit
 end
 
+HAPPY = "(^_^)"
+SAD = "(>_<)"
+
 CONF = OpenStruct.new user: Etc.getlogin, port: 29418, host: "review.openstack.org"
 
 op = OptionParser.new
@@ -108,6 +111,7 @@ EOS
  ['--jsonhack', 'allow sloppy JSON stream parsing'],
  ['--base C', 'specify commit or patchset number to align commits with'],
  ['-f', '--force', 'force updating existing branch (to given base or newest patchset)'],
+ ['-c', '--conflict', 'allow conflicting cherry-picks'],
  ['-v', '--verbose'],
  ['--debug'],
  ['-b', '--branch[=B]', 'create named branch at result commit'],
@@ -209,8 +213,8 @@ if CONF.respond_to? :branch
     branchbase = nil
     loop do
       comminf = git_commit_parse(git.run %w[cat-file -p], comm)
-      if comminf.subject =~ /.*\s\[patchset\s+(\d+)\]\Z/
-        commmap << [Integer($1), comm, comminf]
+      if comminf.subject =~ /.*\s\[patchset\s+(\d+)(#{Regexp.escape SAD})?\]\Z/
+        commmap << [Integer($1), comm, comminf, $2]
         comm = comminf.parent
         break unless String === comm
       else
@@ -276,16 +280,25 @@ when String
 else
   raise "can't make sense of CONF.base.class == #{CONF.base.class}"
 end
-if branch_exists and git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1
-  if CONF.force
-      commmap = []
-  else
-    if CONF.base
-      STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
-      exit 1
+
+if branch_exists
+  conflict_constistent = CONF.conflict ?
+    commmap.transpose[0] == (1..commmap.size).to_a :
+    !commmap.find { |r| r[3] == SAD }
+  if git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1 or !conflict_constistent
+    if CONF.force
+        commmap = []
     else
-      basecommit = branchbase
-      basecommit_rep = basecommit
+      if CONF.base
+        STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
+        exit 1
+      elsif !conflict_constistent
+        STDERR.puts "Aborting: conflict tolerance of branch #{CONF.branch} is different from specified (#{!!CONF.conflict})"
+        exit 1
+      else
+        basecommit = branchbase
+        basecommit_rep = basecommit
+      end
     end
   end
 end
@@ -301,13 +314,20 @@ cherrymap = []
 # to get it sorted it here
 patches.sort.each { |n,ptch|
   next if n <= (commmap.last||[0]).first
+  ee = proc { |s|
+    { "GIT_EDITOR"=> "sed -i -e '1 s/$/ [patchset #{n}#{s}]/'"}
+  }
   begin
     git.run %w[reset --hard], basecommit
-    git.run({"GIT_EDITOR"=> "sed -i -e '1 s/$/ [patchset #{n}]/'"}, %w[cherry-pick -e], ptch.revision)
+    git.run ee[], %w[cherry-pick -e], ptch.revision
     cherrymap << [n, git.run(%w[rev-parse HEAD]).strip]
-    info "#{n}(^_^) ", break_line:false
+    info "#{n}#{HAPPY} ", break_line:false
   rescue CmdFail
-    info "#{n}(>_<) ", break_line:false
+    if CONF.conflict
+      git.run ee[SAD], %w[commit -a]
+      cherrymap << [n, git.run(%w[rev-parse HEAD]).strip]
+    end
+    info "#{n}#{SAD} ", break_line:false
   end
 }
 info
