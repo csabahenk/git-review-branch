@@ -212,14 +212,15 @@ if CONF.respond_to? :branch
       if comminf.subject =~ /.*\s\[patchset\s+(\d+)\]\Z/
         commmap << [Integer($1), comm, comminf]
         comm = comminf.parent
-        unless String === comm
-          STDERR.puts "Aborting: preexisting branch has ambiguous topology"
-          exit 1
-        end
+        break unless String === comm
       else
         branchbase = comm
         break
       end
+    end
+    if !String === comm or commmap.empty?
+      STDERR.puts "Aborting: preexisting branch has ambiguous topology"
+      exit 1
     end
     commmap.sort!
   else
