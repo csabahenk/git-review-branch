@@ -344,6 +344,9 @@ if cherrymap.empty?
 else
   info "#{n} ", break_line:false
   cherrymap[1..-1].each { |n,gitid|
+    # wipe the index to allow the checkout to produce
+    # the exact tree
+    Cmdx.new("sh").run("-c", "git ls-files -z | git update-index --force-remove -z --stdin")
     git.run "checkout", gitid, "."
     git.run %w[commit --allow-empty -C], gitid
     info "#{n} ", break_line:false
