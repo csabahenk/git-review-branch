@@ -344,13 +344,20 @@ if cherrymap.empty?
   info "Moved branch to preexisting patchset #{n}."
 else
   info "#{n} ", break_line:false
+  git_ls_tree = proc { |c|
+    git.run(%w[ls-tree -r -z --name-only --full-name], c).split("\0")
+  }
+  basecommit_tree = git_ls_tree[basecommit]
   cherrymap[1..-1].each { |n,gitid|
-    # wipe the index to allow the checkout to produce
-    # the exact tree
-    Cmdx.new("sh").run("-c", "git ls-files -z | git update-index --force-remove -z --stdin")
     git.run "checkout", gitid, "."
     git.run %w[commit --allow-empty -C], gitid
     info "#{n} ", break_line:false
+    unless [n, gitid] == cherrymap.last
+      # remove pathset's added files to avoid
+      # contaminating the tree for next one
+      treediff = git_ls_tree[gitid] - basecommit_tree
+      git.run "rm", treediff unless treediff.empty?
+    end
   }
   info
 end
