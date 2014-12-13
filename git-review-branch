@@ -317,12 +317,13 @@ patches.sort.each { |n,ptch|
   ee = proc { |s|
     { "GIT_EDITOR"=> "sed -i -e '1 s/$/ [patchset #{n}#{s}]/'"}
   }
+  git.run %w[reset --hard], basecommit
   begin
-    git.run %w[reset --hard], basecommit
     git.run ee[], %w[cherry-pick -e], ptch.revision
     cherrymap << [n, git.run(%w[rev-parse HEAD]).strip]
     info "#{n}#{HAPPY} ", break_line:false
-  rescue CmdFail
+  rescue CmdFail => fx
+    raise unless fx.stat.exited? and fx.stat.exitstatus == 1
     if CONF.conflict
       git.run ee[SAD], %w[commit -a]
       cherrymap << [n, git.run(%w[rev-parse HEAD]).strip]
