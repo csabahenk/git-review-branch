@@ -290,22 +290,30 @@ else
 end
 
 if branch_exists
-  conflict_constistent = CONF.conflict ?
+  consh = {
+  base_consistent: git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size == 1,
+  conflict_constistent: CONF.conflict ?
     commmap.transpose[0] == (1..commmap.size).to_a :
     !commmap.find { |r| r[3] == SAD }
-  if git.run("rev-parse", basecommit, branchbase).split("\n").uniq.size != 1 or !conflict_constistent
+  }
+  if consh.values.include? false
     if CONF.force
         commmap = []
     else
-      if CONF.base
-        STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
-        exit 1
-      elsif !conflict_constistent
+      case false
+      when consh[:base_consistent]
+        if CONF.base
+          STDERR.puts "Aborting: '--base=#{CONF.base}' does not match base derived from '--branch=#{CONF.branch}'"
+          exit 1
+        else
+          basecommit = branchbase
+          basecommit_rep = basecommit
+        end
+      when consh[:conflict_constistent]
         STDERR.puts "Aborting: conflict tolerance of branch #{CONF.branch} is different from specified (#{!!CONF.conflict})"
         exit 1
       else
-        basecommit = branchbase
-        basecommit_rep = basecommit
+        raise "impossible"
       end
     end
   end
