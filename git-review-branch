@@ -73,7 +73,14 @@ class CmdDbg < Cmd
       d.inspect[1...-1] == d ? d : d.inspect
     }
     puts "DBG #{args} => #{stat}", *outs.map { |k,d|
-         d.empty? ? nil : "  DBG #{k}: #{d}"
+         unless d.empty?
+           "  DBG %s: %s" % [k,
+             begin
+               dt = d[0..CONF.debug]
+               dt + (d == dt ? "" :  "... (#{d.size})")
+             end
+           ]
+         end
     }.compact
   end
 
@@ -113,7 +120,7 @@ EOS
  ['-f', '--force', 'force updating existing branch (to given base or newest patchset)'],
  ['-c', '--conflict', 'allow conflicting cherry-picks'],
  ['-v', '--verbose'],
- ['--debug'],
+ ['--debug[=WIDTH]', Integer],
  ['-b', '--branch[=B]', 'create named branch at result commit'],
  ['-r', '--remote R', 'Git remote for Gerrit']].each { |a|
   option = a.grep(/\A--/)[0].sub(/\A--/, "").sub(/([^a-zA-Z_-].*)?\Z/, "")
@@ -132,6 +139,7 @@ unless $*.size <= 1
   exit 1
 end
 
+CONF.respond_to? :debug and CONF.debug ||= -1
 Cmdx = CONF.debug ? CmdDbg : Cmd
 git = Cmdx.new "git"
 if CONF.verbose
