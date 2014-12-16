@@ -254,7 +254,7 @@ patches = {}.instance_eval {
   self
 }
 
-info "Fetching #{patches.size} patchset versions ..."
+info "Fetching #{patches.size} patchsets ..."
 patches.each { |n,ptch|
   begin
     git.run %w[cat-file -e], ptch.revision
@@ -272,7 +272,7 @@ basecommit = case CONF.base
 when Integer, /\A\d+\Z/, nil
   patchno = Integer(CONF.base||patches.keys.max)
   unless patches.include? patchno
-    STDERR.puts "Aborting: there is no patchset version #{patchno}"
+    STDERR.puts "Aborting: there is no patchset number #{patchno}"
     exit 1
   end
   basecommit_rep = "patchset #{patchno}"
@@ -314,7 +314,7 @@ basecommit_rep ||= basecommit
 
 git.run %w[checkout --detach]
 
-info "Cherry-picking patchset versions ..."
+info "Cherry-picking patchsets ..."
 cherrymap = []
 # ruby hashes preserve order, but I don't know
 # of guarantee that the JSON we get from Gerrit
