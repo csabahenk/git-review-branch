@@ -349,7 +349,8 @@ patches.sort.each { |n,ptch|
 }
 info
 
-n, gitid = commmap.last || cherrymap.first
+i = 0
+n, gitid = commmap.last || (i+=1; cherrymap.first)
 unless gitid
   STDERR.puts "No patchset could be cherry-picked to #{basecommit_rep}, exiting"
   exit 1
@@ -364,7 +365,7 @@ else
     git.run(%w[ls-tree -r -z --name-only --full-name], c).split("\0")
   }
   basecommit_tree = git_ls_tree[basecommit]
-  cherrymap[1..-1].each { |n,gitid|
+  cherrymap[i..-1].each { |n,gitid|
     git.run "checkout", gitid, "."
     git.run %w[commit --allow-empty -C], gitid
     info "#{n} ", break_line:false
